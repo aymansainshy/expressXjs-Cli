@@ -1,0 +1,22 @@
+{
+  "name": "@expressx/cli",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "dev": "tsc -w",
+    "start": "node dist/index.js"
+  },
+  "bin": {
+    "expressx": "dist/index.js"
+  },
+  "author": "Ayman Abdulrahman",
+  "license": "ISC",
+  "description": "A CLI tool for ExpressX framework",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
