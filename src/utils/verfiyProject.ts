@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-export function verifyExpressXProject() {
+export function verifyExpressXProject(): void {
     const pkgPath = path.join(process.cwd(), 'package.json');
 
     if (!fs.existsSync(pkgPath)) {
@@ -15,3 +15,4 @@ export function verifyExpressXProject() {
         throw new Error('❌ @expressx/core is not installed in this project.');
     }
 }
+
