@@ -9,6 +9,7 @@ import { showHelp } from './utils/showHelp';
 import { } from './core/generator';
 import { Generator } from './core/generator';
 import { DevServer } from './core/devServer';
+import { buildCommand } from './utils/builder';
 
 // --- Main Bootstrap ---
 async function bootstrap() {
@@ -17,6 +18,9 @@ async function bootstrap() {
 
   try {
     switch (command) {
+      case 'build':
+        buildCommand()
+        break;
       case 'start':
       case 'dev':
         verifyExpressXProject();

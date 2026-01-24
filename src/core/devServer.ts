@@ -1,43 +1,82 @@
 
 import path from 'path';
+import fs from 'fs';
 import chokidar from 'chokidar';
 import { colors } from "../constant/colors";
 import { spawn, ChildProcess } from 'child_process';
 import { IGNORE_PATTERNS } from "../constant/ignoreFiles";
-import { getSourceDirectory } from "../utils/getSourceDirectory";
+import { FileCache } from '../constant/scanInerfaces';
+import { ExpressXScanner } from './scanner';
 
-// --- Dev Server with Watch Mode ---
+// ============================================
+// CLI: DEV SERVER WITH HOT RELOAD
+// ============================================
+
 export class DevServer {
   private child: ChildProcess | null = null;
   private watcher: chokidar.FSWatcher | null = null;
   private isRestarting = false;
+  private cache: FileCache | null = null;
   private restartTimeout: NodeJS.Timeout | null = null;
-  private entry: string;
-  private sourceDir: string;
 
-  constructor(entry: string) {
-    this.entry = entry;
-    this.sourceDir = getSourceDirectory();
+  private entry: string;
+  constructor(entery: string) {
+    this.entry = entery
   }
 
-  start(): void {
-    console.log(colors.cyan('🛠 ExpressX: Starting dev server...'));
-    console.log(colors.gray(`Entry: ${this.entry}`));
-    console.log(colors.gray(`Source: ${this.sourceDir}\n`));
+  async start(): Promise<void> {
+    console.log('\n🛠  ExpressX Development Server\n');
+    console.log('═'.repeat(60) + '\n');
 
+    await this.initializeCache();
     this.startApp();
     this.setupWatcher();
     this.setupGracefulShutdown();
   }
 
+  /**
+   * Load or create cache
+   */
+  private async initializeCache(): Promise<void> {
+    this.cache = ExpressXScanner.loadCache(true);
+
+    if (this.cache) {
+      const cacheAge = Date.now() - new Date(this.cache.generatedAt).getTime();
+      const ageMinutes = Math.round(cacheAge / 60000);
+
+      console.log(`✅ Cache loaded: ${this.cache.decoratorFiles.length} decorator files`);
+      console.log(`   Last updated: ${ageMinutes} minute(s) ago\n`);
+    } else {
+      console.log('🔍 No cache found - performing initial scan...\n');
+      this.cache = await ExpressXScanner.fullScan(true);
+      ExpressXScanner.saveCache(this.cache, true);
+      console.log(`💾 Cache created and saved\n`);
+    }
+  }
+
+  /**
+   * Start the application process
+   */
   private startApp(): void {
     if (this.child) {
       this.child.kill();
       this.child = null;
     }
 
+    // const config = ExpressXScanner.getConfig();
+    // const entryFile = path.join(config.sourceDir, this.entry);
+
+    // if (!fs.existsSync(entryFile)) {
+    //   throw new Error(
+    //     `❌ Entry file not found: ${entryFile}\n` +
+    //     `   Please create ${config.sourceDir}/index.ts`
+    //   );
+    // }
+
     process.env.EXPRESSX_RUNTIME = 'ts';
     process.env.NODE_ENV = process.env.NODE_ENV || 'development';
+
+    console.log('🚀 Starting application...\n');
 
     this.child = spawn(
       'node',
@@ -69,10 +108,15 @@ export class DevServer {
     });
   }
 
+  /**
+   * Setup file watcher
+   */
   private setupWatcher(): void {
-    console.log(colors.gray('👀 Watching for file changes...\n'));
+    const config = ExpressXScanner.getConfig();
+    const watchPattern = `${config.sourceDir}/**/*.ts`;
 
-    const watchPattern = `${this.sourceDir}/**/*.ts`;
+    console.log(`👀 Watching: ${watchPattern}\n`);
+    console.log('═'.repeat(60) + '\n');
 
     this.watcher = chokidar.watch(watchPattern, {
       ignored: IGNORE_PATTERNS,
@@ -84,23 +128,77 @@ export class DevServer {
       }
     });
 
-    this.watcher.on('change', (filepath) => {
-      this.scheduleRestart(filepath);
-    });
-
-    this.watcher.on('add', (filepath) => {
-      this.scheduleRestart(filepath);
-    });
-
-    this.watcher.on('unlink', (filepath) => {
-      this.scheduleRestart(filepath);
-    });
+    this.watcher.on('change', (filepath) => this.handleFileChange(filepath, 'changed'));
+    this.watcher.on('add', (filepath) => this.handleFileChange(filepath, 'added'));
+    this.watcher.on('unlink', (filepath) => this.handleFileChange(filepath, 'deleted'));
   }
 
-  private scheduleRestart(filepath: string): void {
-    const relativePath = path.relative(process.cwd(), filepath);
-    console.log(colors.yellow(`\n📝 File changed: ${relativePath}`));
+  /**
+   * Handle file changes
+   */
+  private handleFileChange(filepath: string, action: string): void {
+    if (!this.cache) return;
 
+    const relativePath = path.relative(process.cwd(), filepath).replace(/\\/g, '/');
+    const absolutePath = path.resolve(filepath);
+
+    console.log(`📝 File ${action}: ${relativePath}`);
+
+    let cacheUpdated = false;
+
+    if (action === 'deleted') {
+      // Remove from cache
+      const index = this.cache.decoratorFiles.indexOf(relativePath);
+      if (index !== -1) {
+        this.cache.decoratorFiles.splice(index, 1);
+        console.log(`   ➖ Removed from cache`);
+        cacheUpdated = true;
+      }
+    } else {
+      // Check if file has decorators
+      const hasDecorators = this.checkForDecorators(absolutePath);
+      const isInCache = this.cache.decoratorFiles.includes(relativePath);
+
+      if (hasDecorators && !isInCache) {
+        this.cache.decoratorFiles.push(relativePath);
+        console.log(`   ➕ Added to cache (decorator detected)`);
+        cacheUpdated = true;
+      } else if (!hasDecorators && isInCache) {
+        this.cache.decoratorFiles = this.cache.decoratorFiles.filter(f => f !== relativePath);
+        console.log(`   ⚠️  Removed from cache (decorators removed)`);
+        cacheUpdated = true;
+      }
+    }
+
+    // Update cache timestamp and save
+    if (cacheUpdated) {
+      this.cache.generatedAt = new Date().toISOString();
+      ExpressXScanner.saveCache(this.cache, true);
+      console.log(`Cache size: ${this.cache.decoratorFiles.length} files`);
+      return;
+    }
+
+
+    this.scheduleRestart();
+  }
+
+  /**
+   * Check if file contains decorators
+   */
+  private checkForDecorators(filepath: string): boolean {
+    try {
+      const content = fs.readFileSync(filepath, 'utf-8');
+      return content.includes('@expressx/core') &&
+        ExpressXScanner['DECORATORS'].some((dec: any) => content.includes(dec));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Schedule application restart (debounced)
+   */
+  private scheduleRestart(): void {
     if (this.restartTimeout) {
       clearTimeout(this.restartTimeout);
     }
@@ -110,6 +208,9 @@ export class DevServer {
     }, 300);
   }
 
+  /**
+   * Restart the application
+   */
   private restart(): void {
     if (this.isRestarting) return;
 
@@ -128,6 +229,9 @@ export class DevServer {
     }
   }
 
+  /**
+   * Setup graceful shutdown
+   */
   private setupGracefulShutdown(): void {
     const shutdown = (signal: string) => {
       console.log(colors.yellow(`\n\n🛑 Received ${signal}, shutting down gracefully...`));
