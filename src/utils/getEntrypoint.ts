@@ -17,7 +17,7 @@ export function getEntrypoint(): string {
 
     if (fs.existsSync(pkgPath)) {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        const definedEntry = pkg.expressx?.entry || pkg.main;
+        const definedEntry = pkg.expressx?.main || pkg.main;
 
         if (definedEntry) {
             const absolutePath = path.resolve(root, definedEntry);

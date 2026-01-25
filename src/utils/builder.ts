@@ -3,8 +3,8 @@
 // ============================================
 
 import path from "path";
-import { ExpressXScanner } from "../core/scanner";
 import { FileCache } from "../constant/scanInerfaces";
+import { ExpressXScanner } from "@expressx/core/scanner";
 
 export async function buildCommand(): Promise<void> {
   console.log('\n🔨 ExpressX Build Process\n');
