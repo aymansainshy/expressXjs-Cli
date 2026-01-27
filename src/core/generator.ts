@@ -1,18 +1,48 @@
 import path from "path";
 import fs from 'fs';
 import { templates } from "../constant/appComponents";
-import { getSourceDirectory } from "../utils/getSourceDirectory";
 import { toKebabCase } from "../utils/toKebabCase";
 import { toPascalCase } from "../utils/toPascalCase";
 import { colors } from "../constant/colors";
+import { ScanConfig } from "../constant/scanInerfaces";
+
+
 
 // --- Generators ---
 export class Generator {
   private sourceDir: string;
 
   constructor() {
-    this.sourceDir = getSourceDirectory();
+    this.sourceDir = this.getConfig().sourceDir;
   }
+
+  getConfig(): ScanConfig {
+    const pkgPath = path.join(process.cwd(), 'package.json');
+
+    if (!fs.existsSync(pkgPath)) {
+      throw new Error('❌ package.json not found in current directory.');
+    }
+
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+
+    if (!pkg.expressx?.sourceDir) {
+      throw new Error(
+        '❌ Missing "expressx.sourceDir" in package.json.\n\n' +
+        'Add this configuration:\n' +
+        '{\n' +
+        '  "expressx": {\n' +
+        '    "sourceDir": "src"\n' +
+        '  }\n' +
+        '}'
+      );
+    }
+
+    return {
+      sourceDir: pkg.expressx.sourceDir,
+      outDir: pkg.expressx.outDir
+    };
+  }
+
 
   generate(type: string, name: string, customPath?: string): void {
     const className = toPascalCase(name);

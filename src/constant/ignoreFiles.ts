@@ -5,5 +5,6 @@ export const IGNORE_PATTERNS = [
   '**/*.test.ts',
   '**/dist/**',
   '**/build/**',
-  '**/.git/**'
+  '**/.git/**',
+  '**/.expressx/**'
 ];

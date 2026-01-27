@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build"
@@ -16,9 +16,10 @@
   },
   "author": "Ayman Abdulrahman",
   "license": "ISC",
-  "description": "A CLI tool for ExpressX framework",
+  "description": "A CLI tool for ExpressXjs framework",
   "dependencies": {
     "@expressx/core": "*",
+    "glob": "^10.3.10",
     "commander": "^11.1.0",
     "typescript": "^5.4.0",
     "@types/node": "^20.0.0"
