@@ -135,7 +135,8 @@ export class DevServer {
     this.child = spawn(
       'node',
       [
-        '--require', 'ts-node/register',
+        '--require', '@expressx/core/runtime',
+        // '--require', 'ts-node/register',
         '--enable-source-maps',
         this.entry
       ],
