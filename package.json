@@ -19,7 +19,6 @@
   "description": "A CLI tool for ExpressXjs framework",
   "dependencies": {
     "@expressx/core": "*",
-    "glob": "^10.3.10",
     "commander": "^11.1.0",
     "typescript": "^5.4.0",
     "@types/node": "^20.0.0"

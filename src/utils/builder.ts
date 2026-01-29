@@ -28,7 +28,7 @@ export async function buildCommand(): Promise<void> {
     // Convert source paths to compiled paths
     const prodCache: FileCache = {
       version: devCache.version,
-      decoratorFiles: devCache.decoratorFiles.map(file =>
+      decoratorFiles: devCache.decoratorFiles.map((file: string) =>
         file
           .replace(config.sourceDir + '/', config.outDir + '/')
           .replace(/\.ts$/, '.js')

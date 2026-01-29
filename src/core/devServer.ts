@@ -1,5 +1,5 @@
 import path from 'path';
-import fs from 'fs';
+import fs, { existsSync } from 'fs';
 import chokidar from 'chokidar';
 import { colors } from "../constant/colors";
 import { spawn, ChildProcess } from 'child_process';
@@ -126,6 +126,12 @@ export class DevServer {
       this.child = null;
     }
 
+    // Inside your CLI command handler
+    if (!this.runDoctor(this.entry)) {
+      console.error('\n🚨 Environmental checks failed. Please fix the issues above.');
+      process.exit(1);
+    }
+
     process.env.EXPRESSX_RUNTIME = 'ts';
     process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 
@@ -136,7 +142,9 @@ export class DevServer {
       'node',
       [
         '--require', '@expressx/core/runtime',
+        // '--require', 'reflect-metadata/Reflect',
         // '--require', 'ts-node/register',
+        // '--require', 'tsconfig-paths/register',
         '--enable-source-maps',
         this.entry
       ],
@@ -166,6 +174,42 @@ export class DevServer {
       console.error(colors.red(`❌ Failed to start: ${err.message}`));
       this.child = null; // ✅ FIX: Clear reference on spawn error
     });
+  }
+
+
+  private runDoctor(entry: string): boolean {
+    console.log('🩺 ExpressXjs Doctor: Checking your environment...');
+
+    const checks = [
+      {
+        name: 'Entry File',
+        passed: existsSync(path.resolve(process.cwd(), entry)),
+        error: `Could not find entry file at ${entry}`,
+      },
+      // {
+      //   name: 'Reflect Polyfill',
+      //   passed: !!require.resolve('reflect-metadata'),
+      //   error: 'reflect-metadata is missing from the dependency tree.',
+      // },
+      {
+        name: 'Runtime Entry',
+        passed: !!require.resolve('@expressx/core/runtime'),
+        error: '@expressx/core/runtime is not reachable.',
+      }
+    ];
+
+    let allPassed = true;
+
+    checks.forEach(check => {
+      if (check.passed) {
+        console.log(`  ✅ ${check.name}`);
+      } else {
+        console.error(`  ❌ ${check.name}: ${check.error}`);
+        allPassed = false;
+      }
+    });
+
+    return allPassed;
   }
 
   private setupWatcher(): void {
