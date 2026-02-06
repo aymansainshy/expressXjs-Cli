@@ -3,7 +3,7 @@
 // ============================================
 
 import path from "path";
-import { FileCache } from "../constant/scanInerfaces";
+import { CachedFileMetadata, FileCache } from "../constant/scanInerfaces";
 import { ExpressXScanner } from "@expressx/core/scanner";
 
 export async function buildCommand(): Promise<void> {
@@ -28,10 +28,13 @@ export async function buildCommand(): Promise<void> {
     // Convert source paths to compiled paths
     const prodCache: FileCache = {
       version: devCache.version,
-      decoratorFiles: devCache.decoratorFiles.map((file: string) =>
-        file
+      decoratorFiles: devCache.decoratorFiles.map((data: CachedFileMetadata) =>
+      ({
+        ...data,
+        path: data.path
           .replace(config.sourceDir + '/', config.outDir + '/')
           .replace(/\.ts$/, '.js')
+      })
       ),
       totalScanned: devCache.totalScanned,
       generatedAt: new Date().toISOString(),

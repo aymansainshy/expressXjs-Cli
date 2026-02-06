@@ -4,7 +4,7 @@ import chokidar from 'chokidar';
 import { colors } from "../constant/colors";
 import { spawn, ChildProcess } from 'child_process';
 import { IGNORE_PATTERNS } from "../constant/ignoreFiles";
-import { FileCache } from '../constant/scanInerfaces';
+import { CachedFileMetadata, FileCache } from '../constant/scanInerfaces';
 import { ExpressXScanner } from '@expressx/core/scanner';
 
 // const logger = new ExpressXLogger()
@@ -41,25 +41,33 @@ export class DevServer {
 
     if (this.cache) {
       //  Validate cache entries - remove files that don't exist
-      const validFiles = this.cache.decoratorFiles.filter(file => {
-        const absolutePath = path.join(process.cwd(), file);
-        return fs.existsSync(absolutePath);
-      });
+      // PHASE 1: Validate existing cached files (fast)
+      const { validFiles, updatedCount, removedCount } = await this.validateCachedFiles();
 
-      const removedCount = this.cache.decoratorFiles.length - validFiles.length;
+      // Report changes
+      const totalChanges = updatedCount + removedCount
 
-      if (removedCount > 0) {
-        console.log(colors.yellow(`⚠️  Removed ${removedCount} missing file(s) from cache\n`));
+
+      if (totalChanges > 0) {
         this.cache.decoratorFiles = validFiles;
         this.cache.generatedAt = new Date().toISOString();
         ExpressXScanner.saveCache(this.cache, true);
+
+        console.log(colors.cyan('\n📊 Cache Update Summary:'));
+        if (updatedCount > 0) console.log(colors.yellow(`   ✏️  Updated: ${updatedCount} file(s)`));
+        if (removedCount > 0) console.log(colors.red(`   ➖ Removed: ${removedCount} file(s)`));
+        console.log('');
+      } else {
+        console.log(colors.green('✅ Cache is up-to-date! No changes detected.\n'));
       }
 
       const cacheAge = Date.now() - new Date(this.cache.generatedAt).getTime();
       const ageMinutes = Math.round(cacheAge / 60000);
 
-      console.log(`✅ Cache loaded: ${this.cache.decoratorFiles.length} decorator files`);
+      console.log(`📦 Total decorator files: ${this.cache.decoratorFiles.length}`);
       console.log(`   Last updated: ${ageMinutes} minute(s) ago\n`);
+
+
     } else {
       console.log('⏳ No cache found - framework will create it on startup\n');
       console.log('💡 After first run, hot-reload will be available\n');
@@ -72,6 +80,55 @@ export class DevServer {
         environment: 'development'
       };
     }
+  }
+
+
+  /**
+   * PHASE 1: Validate existing cache entries using metadata
+   * Returns: { validFiles, updatedCount, removedCount }
+   */
+  private async validateCachedFiles(): Promise<{
+    validFiles: CachedFileMetadata[];
+    updatedCount: number;
+    removedCount: number;
+  }> {
+    const validFiles: CachedFileMetadata[] = [];
+    let updatedCount = 0;
+    let removedCount = 0;
+
+    console.log(`   Checking ${this.cache!.decoratorFiles.length} cached files...`);
+
+    for (const cachedFile of this.cache!.decoratorFiles) {
+      const absolutePath = path.join(process.cwd(), cachedFile.path);
+
+      try {
+        const stats = fs.statSync(absolutePath);
+
+        // FAST PATH: Metadata matches - no need to read file
+        if (stats.mtimeMs === cachedFile.mtime && stats.size === cachedFile.size) {
+          validFiles.push(cachedFile);
+          continue;
+        }
+
+        // SLOW PATH: Metadata changed - re-check content
+        if (this.checkForDecorators(absolutePath)) {
+          validFiles.push({
+            path: cachedFile.path,
+            mtime: stats.mtimeMs,
+            size: stats.size
+          });
+          updatedCount++;
+        } else {
+          // File changed and no longer has decorators
+          removedCount++;
+        }
+      } catch {
+        // File deleted
+        removedCount++;
+      }
+    }
+
+    return { validFiles, updatedCount, removedCount };
   }
 
   /**
@@ -249,7 +306,7 @@ export class DevServer {
     let cacheUpdated = false;
 
     if (action === 'deleted') {
-      const index = this.cache.decoratorFiles.indexOf(relativePath);
+      const index = this.cache.decoratorFiles.findIndex(f => f.path === relativePath);
       if (index !== -1) {
         this.cache.decoratorFiles.splice(index, 1);
         console.log(`   ➖ Removed from cache`);
@@ -257,14 +314,27 @@ export class DevServer {
       }
     } else {
       const hasDecorators = this.checkForDecorators(absolutePath);
-      const isInCache = this.cache.decoratorFiles.includes(relativePath);
+      const cachedFile = this.cache.decoratorFiles.find(f => f.path === relativePath);
 
-      if (hasDecorators && !isInCache) {
-        this.cache.decoratorFiles.push(relativePath);
-        console.log(`   ➕ Added to cache (decorator detected)`);
-        cacheUpdated = true;
-      } else if (!hasDecorators && isInCache) {
-        this.cache.decoratorFiles = this.cache.decoratorFiles.filter(f => f !== relativePath);
+      if (hasDecorators) {
+        const stats = fs.statSync(absolutePath);
+        const newData: CachedFileMetadata = {
+          path: relativePath,
+          mtime: stats.mtimeMs,
+          size: stats.size
+        };
+
+        if (!cachedFile) {
+          this.cache.decoratorFiles.push(newData);
+          console.log(`   ➕ Added to cache (decorator detected)`);
+          cacheUpdated = true;
+        } else if (cachedFile.mtime !== stats.mtimeMs) {
+          Object.assign(cachedFile, newData);
+          console.log(`   🔄 Updated cache metadata`);
+          cacheUpdated = true;
+        }
+      } else if (cachedFile) {
+        this.cache.decoratorFiles = this.cache.decoratorFiles.filter(f => f.path !== relativePath);
         console.log(`   ⚠️  Removed from cache (decorators removed)`);
         cacheUpdated = true;
       }
@@ -289,11 +359,20 @@ export class DevServer {
     try {
       const content = fs.readFileSync(filepath, 'utf-8');
 
-      const decoratorPattern = new RegExp(`@(${ExpressXScanner['DECORATORS'].join('|')})\\b(\\s*\\([\\s\\S]*?\\))?`, 'm');
+      // Fast-Path 2: Symbol check (instant)
+      if (!content.includes('@')) return false;
 
-      console.log(decoratorPattern.test(content))
+      // Fast-Path 3: Decorator name substring (fast)
+      const decorators = ExpressXScanner['DECORATORS'] as string[];
 
-      return decoratorPattern.test(content);
+      return decorators.some(decorator => {
+        // Quick substring check before regex
+        if (!content.includes(decorator)) return false;
+
+        const decoratorName = decorator.replace('@', '');
+        const pattern = new RegExp(`@${decoratorName}(\\s*\\(|\\s|$)`, 'm');
+        return pattern.test(content);
+      });
     } catch {
       return false;
     }
