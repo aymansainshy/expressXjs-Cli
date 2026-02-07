@@ -9,6 +9,12 @@ import { ExpressXScanner } from '@expressx/core/scanner';
 
 // const logger = new ExpressXLogger()
 
+
+export interface DevServerOptions {
+  nodeFlags?: string[];
+  appFlags?: string[];
+}
+
 export class DevServer {
   private child: ChildProcess | null = null;
   private watcher: chokidar.FSWatcher | null = null;
@@ -17,14 +23,36 @@ export class DevServer {
   private cache: FileCache | null = null;
   private restartTimeout: NodeJS.Timeout | null = null;
   private entry: string;
+  private options: DevServerOptions;
 
-  constructor(entry: string) {
+  constructor(entry: string, options: DevServerOptions = {}) {
     this.entry = entry;
+    this.options = {
+      nodeFlags: options.nodeFlags || [],
+      appFlags: options.appFlags || []
+    };
   }
 
   async start(): Promise<void> {
     console.log('\n🛠  ExpressX Development Server\n');
     console.log('═'.repeat(60) + '\n');
+
+    // Display enabled flags
+    if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
+      console.log(colors.cyan('⚙️  Node.js flags:'));
+      this.options.nodeFlags.forEach(arg => {
+        console.log(`   ${arg}`);
+      });
+      console.log('');
+    }
+
+    if (this.options.appFlags && this.options.appFlags.length > 0) {
+      console.log(colors.green('🎯 Application flags:'));
+      this.options.appFlags.forEach(arg => {
+        console.log(`   ${arg}`);
+      });
+      console.log('');
+    }
 
     await this.initializeCache();
     this.watchCacheDirectory();
@@ -195,16 +223,27 @@ export class DevServer {
     console.log('🚀 Starting application...');
     console.log(`   Entry: ${this.entry}\n`);
 
+    // Build complete command array
+    // Format: node [nodeFlags] [entry] [appFlags]
+    const nodeArgs = [
+      ...(this.options.nodeFlags || []),      // Custom Node.js flags (--inspect, etc.)
+      '--require', '@expressx/core/runtime',  // Required runtime
+      '--enable-source-maps',                 // Source maps
+      this.entry,                             // Entry file
+      ...(this.options.appFlags || [])        // Application flags (--port, etc.)
+    ];
+
+    if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
+      console.log(colors.gray(`   Node flags: ${this.options.nodeFlags.join(' ')}`));
+    }
+    if (this.options.appFlags && this.options.appFlags.length > 0) {
+      console.log(colors.gray(`   App flags: ${this.options.appFlags.join(' ')}`));
+    }
+    console.log('');
+
     this.child = spawn(
       'node',
-      [
-        '--require', '@expressx/core/runtime',
-        // '--require', 'reflect-metadata/Reflect',
-        // '--require', 'ts-node/register',
-        // '--require', 'tsconfig-paths/register',
-        '--enable-source-maps',
-        this.entry
-      ],
+      nodeArgs,
       {
         stdio: 'inherit',
         env: process.env,

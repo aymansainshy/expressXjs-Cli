@@ -3,8 +3,14 @@ import fs from 'fs';
 import { colors } from '../constant/colors';
 import { toPascalCase } from './toPascalCase';
 
+export interface CreateProjectOptions {
+  template?: 'default' | 'api' | 'full';
+  skipInstall?: boolean;
+  skipGit?: boolean;
+}
+
 // --- Project Scaffolding ---
-export function createProject(projectName: string): void {
+export function createProject(projectName: string, options: CreateProjectOptions = {}): void {
   const projectPath = path.join(process.cwd(), projectName);
 
   if (fs.existsSync(projectPath)) {
@@ -12,17 +18,33 @@ export function createProject(projectName: string): void {
     process.exit(1);
   }
 
-  console.log(colors.cyan(`\n🎨 Creating new ExpressX project: ${projectName}\n`));
+  const template = options.template || 'default';
+  const skipInstall = options.skipInstall || false;
+  const skipGit = options.skipGit || false;
+
+  console.log(colors.cyan(`\n🎨 Creating new ExpressX project: ${projectName}`));
+  console.log(colors.gray(`   Template: ${template}`));
+  if (skipInstall) console.log(colors.gray('   Skip install: true'));
+  if (skipGit) console.log(colors.gray('   Skip git: true'));
+  console.log('');
 
   // Create directory structure
   fs.mkdirSync(projectPath);
   fs.mkdirSync(path.join(projectPath, 'src'));
 
+  // Template-specific directories
+  if (template === 'full') {
+    fs.mkdirSync(path.join(projectPath, 'src', 'controllers'));
+    fs.mkdirSync(path.join(projectPath, 'src', 'services'));
+    fs.mkdirSync(path.join(projectPath, 'src', 'middlewares'));
+    fs.mkdirSync(path.join(projectPath, 'src', 'interceptors'));
+  }
+
   // Create package.json
   const packageJson = {
     name: projectName,
     version: '1.0.0',
-    description: 'ExpressX application',
+    description: `ExpressX application - ${template} template`,
     main: 'dist/index.js',
     scripts: {
       dev: 'expressx start',
@@ -75,71 +97,36 @@ export function createProject(projectName: string): void {
     JSON.stringify(tsConfig, null, 2)
   );
 
-  // Create .gitignore
-  const gitignore = `node_modules/
+  // Create .gitignore (unless skipped)
+  if (!skipGit) {
+    const gitignore = `node_modules/
 dist/
 *.log
 .env
 .DS_Store
 `;
-
-  fs.writeFileSync(path.join(projectPath, '.gitignore'), gitignore);
-
-  // Create main application file
-  const mainApp = `import { ExpressX, Application } from '@expressx/core';
-
-@Application({
-  port: 3000
-})
-export class ${toPascalCase(projectName)}App extends ExpressX {
-  async onInit() {
-    console.log('🚀 ${projectName} is starting...');
+    fs.writeFileSync(path.join(projectPath, '.gitignore'), gitignore);
   }
 
-  async onReady() {
-    console.log('✅ ${projectName} is ready!');
-    console.log(\`🌍 Server running at http://localhost:\${this.config.port}\`);
+  // Create main application file based on template
+  if (template === 'api') {
+    createApiTemplate(projectPath, projectName);
+  } else if (template === 'full') {
+    createFullTemplate(projectPath, projectName);
+  } else {
+    createDefaultTemplate(projectPath, projectName);
   }
-}
-`;
-
-  fs.writeFileSync(path.join(projectPath, 'src', 'main.ts'), mainApp);
-
-  // Create example controller
-  const exampleController = `import { Controller, Get } from '@expressx/core';
-
-@Controller('/api')
-export class AppController {
-  @Get('/')
-  async index() {
-    return {
-      message: 'Welcome to ${projectName}!',
-      version: '1.0.0'
-    };
-  }
-
-  @Get('/health')
-  async health() {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString()
-    };
-  }
-}
-`;
-
-  fs.writeFileSync(path.join(projectPath, 'src', 'app.controller.ts'), exampleController);
 
   // Create README
   const readme = `# ${projectName}
 
-A new ExpressX application.
+A new ExpressX application (${template} template).
 
 ## Getting Started
 
 \`\`\`bash
 # Install dependencies
-npm install
+${skipInstall ? '# (skipped)' : 'npm install'}
 
 # Run in development mode
 npm run dev
@@ -182,6 +169,173 @@ ${projectName}/
   console.log(colors.green('✅ Project created successfully!\n'));
   console.log(colors.bold('Next steps:\n'));
   console.log(colors.cyan(`  cd ${projectName}`));
-  console.log(colors.cyan('  npm install'));
+
+  if (!skipInstall) {
+    console.log(colors.cyan('  npm install'));
+  }
+
+  if (!skipGit) {
+    console.log(colors.cyan('  git init'));
+  }
+
   console.log(colors.cyan('  npm run dev\n'));
+}
+
+function createDefaultTemplate(projectPath: string, projectName: string): void {
+  const mainApp = `import { ExpressX, Application } from '@expressx/core';
+
+@Application({
+  port: 3000
+})
+export class ${toPascalCase(projectName)}App extends ExpressX {
+  async onInit() {
+    console.log('🚀 ${projectName} is starting...');
+  }
+
+  async onReady() {
+    console.log('✅ ${projectName} is ready!');
+    console.log(\`🌍 Server running at http://localhost:\${this.config.port}\`);
+  }
+}
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'main.ts'), mainApp);
+
+  const exampleController = `import { Controller, Get } from '@expressx/core';
+
+@Controller('/api')
+export class AppController {
+  @Get('/')
+  async index() {
+    return {
+      message: 'Welcome to ${projectName}!',
+      version: '1.0.0'
+    };
+  }
+
+  @Get('/health')
+  async health() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'app.controller.ts'), exampleController);
+}
+
+function createApiTemplate(projectPath: string, projectName: string): void {
+  // API template with more REST endpoints
+  const mainApp = `import { ExpressX, Application } from '@expressx/core';
+
+@Application({
+  port: 3000,
+  cors: true,
+  json: true
+})
+export class ${toPascalCase(projectName)}App extends ExpressX {
+  async onInit() {
+    console.log('🚀 ${projectName} API is starting...');
+  }
+
+  async onReady() {
+    console.log('✅ ${projectName} API is ready!');
+    console.log(\`🌍 API running at http://localhost:\${this.config.port}\`);
+  }
+}
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'main.ts'), mainApp);
+
+  const apiController = `import { Controller, Get, Post, Put, Delete } from '@expressx/core';
+
+  @Controller('/user')
+  export class UserController {
+    @GET('/') 
+    async getAll(@Req() req: Request): Promise<HttpResponse | any> { }
+
+    @GET('/:id') 
+    async getById(@Req() req: Request): Promise<HttpResponse | any> { }
+
+    @POST('/') 
+    async create(@Req() req: Request): Promise<HttpResponse | any> { }
+
+    @PUT('/:id')
+    async update(@Req() req: Request): Promise<HttpResponse | any> { }
+
+    @DELETE('/:id') 
+    async destroy(@Req() req: Request): Promise<HttpResponse | any> { }
+  }
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'app.controller.ts'), apiController);
+}
+
+function createFullTemplate(projectPath: string, projectName: string): void {
+  // Full template with organized structure
+  const mainApp = `import { ExpressX, Application } from '@expressx/core';
+
+@Application({
+  port: 3000,
+  cors: true,
+  json: true
+})
+export class ${toPascalCase(projectName)}App extends ExpressX {
+  async onInit() {
+    console.log('🚀 ${projectName} is starting...');
+  }
+
+  async onReady() {
+    console.log('✅ ${projectName} is ready!');
+    console.log(\`🌍 Server running at http://localhost:\${this.config.port}\`);
+  }
+}
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'main.ts'), mainApp);
+
+  // Create example files in subdirectories
+  const controller = `import { Controller, Get } from '@expressx/core';
+import { AppService } from '../services/app.service';
+
+@Controller('/api')
+export class AppController {
+  constructor(private appService: AppService) {}
+
+  @Get('/')
+  async index() {
+    return this.appService.getInfo();
+  }
+}
+`;
+
+  const service = `import { Injectable } from '@expressx/core';
+
+@Injectable()
+export class AppService {
+  getInfo() {
+    return {
+      message: 'Welcome to ${projectName}!',
+      version: '1.0.0'
+    };
+  }
+}
+`;
+
+  const middleware = `import { Middleware } from '@expressx/core';
+
+@Middleware()
+export class LoggerMiddleware {
+  use(req: any, res: any, next: any) {
+    console.log(\`[\${new Date().toISOString()}] \${req.method} \${req.url}\`);
+    next();
+  }
+}
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'src', 'controllers', 'app.controller.ts'), controller);
+  fs.writeFileSync(path.join(projectPath, 'src', 'services', 'app.service.ts'), service);
+  fs.writeFileSync(path.join(projectPath, 'src', 'middlewares', 'logger.middleware.ts'), middleware);
 }

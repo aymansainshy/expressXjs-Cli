@@ -6,7 +6,11 @@ import { toPascalCase } from "../utils/toPascalCase";
 import { colors } from "../constant/colors";
 import { ScanConfig } from "../constant/scanInerfaces";
 
-
+export interface GenerateOptions {
+  dryRun?: boolean;
+  force?: boolean;
+  path?: string;
+}
 
 // --- Generators ---
 export class Generator {
@@ -43,10 +47,14 @@ export class Generator {
     };
   }
 
-
-  generate(type: string, name: string, customPath?: string): void {
+  generate(type: string, name: string, customPath?: string, options: GenerateOptions = {}): void {
     const className = toPascalCase(name);
     const fileName = toKebabCase(name);
+
+    // Extract options with defaults
+    const dryRun = options.dryRun || false;
+    const force = options.force || false;
+    const targetPath = options.path || customPath;
 
     if (!templates[type as keyof typeof templates]) {
       throw new Error(`Unknown type: ${type}. Available: controller, service, middleware, interceptor, application`);
@@ -56,27 +64,72 @@ export class Generator {
 
     // Determine file path
     let filePath: string;
-    if (customPath) {
-      filePath = path.join(process.cwd(), customPath, `${fileName}.${type}.ts`);
+    if (targetPath) {
+      filePath = path.join(process.cwd(), targetPath, `${fileName}.${type}.ts`);
     } else {
       filePath = path.join(process.cwd(), this.sourceDir, `${fileName}.${type}.ts`);
+    }
+
+    const relativePath = path.relative(process.cwd(), filePath);
+
+    // Dry run mode - just show what would happen
+    if (dryRun) {
+      console.log(colors.cyan('\n🔍 Dry Run Mode - No files will be created\n'));
+      console.log(colors.gray('─'.repeat(60)));
+      console.log(colors.bold('Would create:'));
+      console.log(`  Type: ${colors.cyan(type)}`);
+      console.log(`  Name: ${colors.cyan(className)}`);
+      console.log(`  File: ${colors.cyan(relativePath)}`);
+      console.log(colors.gray('─'.repeat(60)));
+      console.log(colors.bold('\nFile preview:\n'));
+      console.log(colors.gray(content));
+      console.log(colors.gray('─'.repeat(60)));
+      console.log(colors.yellow('\n💡 Run without --dry-run to create the file\n'));
+      return;
     }
 
     // Ensure directory exists
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
+      console.log(colors.gray(`📁 Creating directory: ${path.relative(process.cwd(), dir)}`));
       fs.mkdirSync(dir, { recursive: true });
     }
 
     // Check if file exists
     if (fs.existsSync(filePath)) {
-      console.log(colors.yellow(`⚠️  File already exists: ${filePath}`));
-      console.log(colors.gray('Use --force to overwrite'));
-      return;
+      if (!force) {
+        console.log(colors.yellow(`⚠️  File already exists: ${relativePath}`));
+        console.log(colors.gray('   Use --force to overwrite\n'));
+        return;
+      } else {
+        console.log(colors.yellow(`⚠️  Overwriting existing file: ${relativePath}`));
+      }
     }
 
     // Write file
     fs.writeFileSync(filePath, content);
-    console.log(colors.green(`✅ Created ${type}: ${path.relative(process.cwd(), filePath)}`));
+
+    // Success message
+    console.log(colors.green(`✅ Created ${type}: ${relativePath}`));
+
+    // Additional info
+    if (force && fs.existsSync(filePath)) {
+      console.log(colors.gray('   (overwrote existing file)'));
+    }
+
+    console.log('');
+  }
+
+  /**
+   * Generate multiple files at once
+   */
+  generateBatch(items: Array<{ type: string; name: string; path?: string }>, options: GenerateOptions = {}): void {
+    console.log(colors.cyan(`\n📦 Generating ${items.length} file(s)...\n`));
+
+    for (const item of items) {
+      this.generate(item.type, item.name, item.path, options);
+    }
+
+    console.log(colors.green('✅ Batch generation complete!\n'));
   }
 }
