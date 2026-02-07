@@ -6,8 +6,11 @@ import { spawn, ChildProcess } from 'child_process';
 import { IGNORE_PATTERNS } from "../constant/ignoreFiles";
 import { CachedFileMetadata, FileCache } from '../constant/scanInerfaces';
 import { ExpressXScanner } from '@expressx/core/scanner';
+import { frameworkLogo } from '../constant/appStarter';
 
 // const logger = new ExpressXLogger()
+
+
 
 
 export interface DevServerOptions {
@@ -34,8 +37,7 @@ export class DevServer {
   }
 
   async start(): Promise<void> {
-    console.log('\n🛠  ExpressX Development Server\n');
-    console.log('═'.repeat(60) + '\n');
+    console.log(colors.green(`\n${frameworkLogo}\n`));
 
     // Display enabled flags
     if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
