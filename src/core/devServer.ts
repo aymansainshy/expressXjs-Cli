@@ -97,8 +97,7 @@ export class DevServer {
       logger.info(`Total decorator files: ${this.cache.decoratorFiles.length},  Last updated: ${ageMinutes} minute(s) ago`, '.expressx/cache.json');
 
     } else {
-      logger.info('⏳ No cache found - framework will create it on startup');
-      logger.info('💡 After first run, hot-reload will be available\n');
+      logger.info('No cache found, creating new cache...', '.expressx/cache.json');
 
       this.cache = {
         version: '1.0.0',
@@ -185,12 +184,12 @@ export class DevServer {
 
     // Cache added/recreated
     this.cacheWatcher.on('add', () => {
-      console.log('\n✅ Cache created by framework - reloading...\n');
+      // logger.info('Cache created by framework - reloading...', '.expressx/cache.json');
       setTimeout(() => {
         this.cache = ExpressXScanner.loadCache(true);
-        if (this.cache) {
-          console.log(`📦 Loaded ${this.cache.decoratorFiles.length} decorator files\n`);
-        }
+        // if (this.cache) {
+        //   logger.info(`Loaded ${this.cache.decoratorFiles.length} decorator files`, '.expressx/cache.json');
+        // }
       }, 100);
     });
 
@@ -236,7 +235,6 @@ export class DevServer {
     if (this.options.appFlags && this.options.appFlags.length > 0) {
       console.log(colors.gray(`   App flags: ${this.options.appFlags.join(' ')}`));
     }
-    console.log('');
 
     this.child = spawn(
       'node',
@@ -309,7 +307,7 @@ export class DevServer {
     const config = ExpressXScanner.getConfig();
     const watchPattern = `${config.sourceDir}/**/*.ts`;
 
-    logger.info(`Start Watching file : ${watchPattern} \n`, 'watcher');
+    logger.info(`Start Watching file : ${watchPattern}`, 'watcher');
 
     this.watcher = chokidar.watch(watchPattern, {
       ignored: IGNORE_PATTERNS,
