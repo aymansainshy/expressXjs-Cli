@@ -6,8 +6,11 @@ import { spawn, ChildProcess } from 'child_process';
 import { IGNORE_PATTERNS } from "../constant/ignoreFiles";
 import { CachedFileMetadata, FileCache } from '../constant/scanInerfaces';
 import { ExpressXScanner } from '@expressx/core/scanner';
+import { frameworkLogo } from '../constant/appStarter';
+import { logger } from '../constant/logger';
 
-// const logger = new ExpressXLogger()
+
+
 
 
 export interface DevServerOptions {
@@ -34,8 +37,7 @@ export class DevServer {
   }
 
   async start(): Promise<void> {
-    console.log('\n🛠  ExpressX Development Server\n');
-    console.log('═'.repeat(60) + '\n');
+    console.log(colors.green(`\n${frameworkLogo}\n`));
 
     // Display enabled flags
     if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
@@ -84,21 +86,19 @@ export class DevServer {
         console.log(colors.cyan('\n📊 Cache Update Summary:'));
         if (updatedCount > 0) console.log(colors.yellow(`   ✏️  Updated: ${updatedCount} file(s)`));
         if (removedCount > 0) console.log(colors.red(`   ➖ Removed: ${removedCount} file(s)`));
-        console.log('');
+
       } else {
-        console.log(colors.green('✅ Cache is up-to-date! No changes detected.\n'));
+        logger.info('.expressx.cache is up-to-date! No changes detected.', '.expressx/cache.json');
       }
 
       const cacheAge = Date.now() - new Date(this.cache.generatedAt).getTime();
       const ageMinutes = Math.round(cacheAge / 60000);
 
-      console.log(`📦 Total decorator files: ${this.cache.decoratorFiles.length}`);
-      console.log(`   Last updated: ${ageMinutes} minute(s) ago\n`);
-
+      logger.info(`Total decorator files: ${this.cache.decoratorFiles.length},  Last updated: ${ageMinutes} minute(s) ago`, '.expressx/cache.json');
 
     } else {
-      console.log('⏳ No cache found - framework will create it on startup\n');
-      console.log('💡 After first run, hot-reload will be available\n');
+      logger.info('⏳ No cache found - framework will create it on startup');
+      logger.info('💡 After first run, hot-reload will be available\n');
 
       this.cache = {
         version: '1.0.0',
@@ -123,8 +123,6 @@ export class DevServer {
     const validFiles: CachedFileMetadata[] = [];
     let updatedCount = 0;
     let removedCount = 0;
-
-    console.log(`   Checking ${this.cache!.decoratorFiles.length} cached files...`);
 
     for (const cachedFile of this.cache!.decoratorFiles) {
       const absolutePath = path.join(process.cwd(), cachedFile.path);
@@ -220,8 +218,7 @@ export class DevServer {
     process.env.EXPRESSX_RUNTIME = 'ts';
     process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 
-    console.log('🚀 Starting application...');
-    console.log(`   Entry: ${this.entry}\n`);
+    logger.info(`Starting application, Entry file: ${this.entry}`, 'Startup');
 
     // Build complete command array
     // Format: node [nodeFlags] [entry] [appFlags]
@@ -274,7 +271,7 @@ export class DevServer {
 
 
   private runDoctor(entry: string): boolean {
-    console.log('🩺 ExpressXjs Doctor: Checking your environment...');
+    logger.info('ExpressXjs Doctor: Checking your environment...', 'doctor');
 
     const checks = [
       {
@@ -298,9 +295,9 @@ export class DevServer {
 
     checks.forEach(check => {
       if (check.passed) {
-        console.log(`  ✅ ${check.name}`);
+        logger.info(`${check.name}`, 'doctor');
       } else {
-        console.error(`  ❌ ${check.name}: ${check.error}`);
+        logger.error(`${check.name}: ${check.error}`, 'doctor');
         allPassed = false;
       }
     });
@@ -312,8 +309,7 @@ export class DevServer {
     const config = ExpressXScanner.getConfig();
     const watchPattern = `${config.sourceDir}/**/*.ts`;
 
-    console.log(`👀 Watching: ${watchPattern}\n`);
-    console.log('═'.repeat(60) + '\n');
+    logger.info(`Start Watching file : ${watchPattern} \n`, 'watcher');
 
     this.watcher = chokidar.watch(watchPattern, {
       ignored: IGNORE_PATTERNS,
