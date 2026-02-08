@@ -1,13 +1,22 @@
 import path from 'path';
-import fs from 'fs';
+import fs, { existsSync } from 'fs';
 import chokidar from 'chokidar';
 import { colors } from "../constant/colors";
 import { spawn, ChildProcess } from 'child_process';
 import { IGNORE_PATTERNS } from "../constant/ignoreFiles";
-import { FileCache } from '../constant/scanInerfaces';
+import { CachedFileMetadata, FileCache } from '../constant/scanInerfaces';
 import { ExpressXScanner } from '@expressx/core/scanner';
+import { frameworkLogo } from '../constant/appStarter';
+import { logger } from '../constant/logger';
 
-// const logger = new ExpressXLogger()
+
+
+
+
+export interface DevServerOptions {
+  nodeFlags?: string[];
+  appFlags?: string[];
+}
 
 export class DevServer {
   private child: ChildProcess | null = null;
@@ -17,14 +26,35 @@ export class DevServer {
   private cache: FileCache | null = null;
   private restartTimeout: NodeJS.Timeout | null = null;
   private entry: string;
+  private options: DevServerOptions;
 
-  constructor(entry: string) {
+  constructor(entry: string, options: DevServerOptions = {}) {
     this.entry = entry;
+    this.options = {
+      nodeFlags: options.nodeFlags || [],
+      appFlags: options.appFlags || []
+    };
   }
 
   async start(): Promise<void> {
-    console.log('\n🛠  ExpressX Development Server\n');
-    console.log('═'.repeat(60) + '\n');
+    console.log(colors.green(`\n${frameworkLogo}\n`));
+
+    // Display enabled flags
+    if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
+      console.log(colors.cyan('⚙️  Node.js flags:'));
+      this.options.nodeFlags.forEach(arg => {
+        console.log(`   ${arg}`);
+      });
+      console.log('');
+    }
+
+    if (this.options.appFlags && this.options.appFlags.length > 0) {
+      console.log(colors.green('🎯 Application flags:'));
+      this.options.appFlags.forEach(arg => {
+        console.log(`   ${arg}`);
+      });
+      console.log('');
+    }
 
     await this.initializeCache();
     this.watchCacheDirectory();
@@ -41,28 +71,34 @@ export class DevServer {
 
     if (this.cache) {
       //  Validate cache entries - remove files that don't exist
-      const validFiles = this.cache.decoratorFiles.filter(file => {
-        const absolutePath = path.join(process.cwd(), file);
-        return fs.existsSync(absolutePath);
-      });
+      // PHASE 1: Validate existing cached files (fast)
+      const { validFiles, updatedCount, removedCount } = await this.validateCachedFiles();
 
-      const removedCount = this.cache.decoratorFiles.length - validFiles.length;
+      // Report changes
+      const totalChanges = updatedCount + removedCount
 
-      if (removedCount > 0) {
-        console.log(colors.yellow(`⚠️  Removed ${removedCount} missing file(s) from cache\n`));
+
+      if (totalChanges > 0) {
         this.cache.decoratorFiles = validFiles;
         this.cache.generatedAt = new Date().toISOString();
         ExpressXScanner.saveCache(this.cache, true);
+
+        console.log(colors.cyan('\n📊 Cache Update Summary:'));
+        if (updatedCount > 0) console.log(colors.yellow(`   ✏️  Updated: ${updatedCount} file(s)`));
+        if (removedCount > 0) console.log(colors.red(`   ➖ Removed: ${removedCount} file(s)`));
+
+      } else {
+        logger.info('.expressx.cache is up-to-date! No changes detected.', '.expressx/cache.json');
       }
 
       const cacheAge = Date.now() - new Date(this.cache.generatedAt).getTime();
       const ageMinutes = Math.round(cacheAge / 60000);
 
-      console.log(`✅ Cache loaded: ${this.cache.decoratorFiles.length} decorator files`);
-      console.log(`   Last updated: ${ageMinutes} minute(s) ago\n`);
+      logger.info(`Total decorator files: ${this.cache.decoratorFiles.length},  Last updated: ${ageMinutes} minute(s) ago`, '.expressx/cache.json');
+
     } else {
-      console.log('⏳ No cache found - framework will create it on startup\n');
-      console.log('💡 After first run, hot-reload will be available\n');
+      logger.info('⏳ No cache found - framework will create it on startup');
+      logger.info('💡 After first run, hot-reload will be available\n');
 
       this.cache = {
         version: '1.0.0',
@@ -72,6 +108,53 @@ export class DevServer {
         environment: 'development'
       };
     }
+  }
+
+
+  /**
+   * PHASE 1: Validate existing cache entries using metadata
+   * Returns: { validFiles, updatedCount, removedCount }
+   */
+  private async validateCachedFiles(): Promise<{
+    validFiles: CachedFileMetadata[];
+    updatedCount: number;
+    removedCount: number;
+  }> {
+    const validFiles: CachedFileMetadata[] = [];
+    let updatedCount = 0;
+    let removedCount = 0;
+
+    for (const cachedFile of this.cache!.decoratorFiles) {
+      const absolutePath = path.join(process.cwd(), cachedFile.path);
+
+      try {
+        const stats = fs.statSync(absolutePath);
+
+        // FAST PATH: Metadata matches - no need to read file
+        if (stats.mtimeMs === cachedFile.mtime && stats.size === cachedFile.size) {
+          validFiles.push(cachedFile);
+          continue;
+        }
+
+        // SLOW PATH: Metadata changed - re-check content
+        if (this.checkForDecorators(absolutePath)) {
+          validFiles.push({
+            path: cachedFile.path,
+            mtime: stats.mtimeMs,
+            size: stats.size
+          });
+          updatedCount++;
+        } else {
+          // File changed and no longer has decorators
+          removedCount++;
+        }
+      } catch {
+        // File deleted
+        removedCount++;
+      }
+    }
+
+    return { validFiles, updatedCount, removedCount };
   }
 
   /**
@@ -126,20 +209,38 @@ export class DevServer {
       this.child = null;
     }
 
+    // Inside your CLI command handler
+    if (!this.runDoctor(this.entry)) {
+      console.error('\n🚨 Environmental checks failed. Please fix the issues above.');
+      process.exit(1);
+    }
+
     process.env.EXPRESSX_RUNTIME = 'ts';
     process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 
-    console.log('🚀 Starting application...');
-    console.log(`   Entry: ${this.entry}\n`);
+    logger.info(`Starting application, Entry file: ${this.entry}`, 'Startup');
+
+    // Build complete command array
+    // Format: node [nodeFlags] [entry] [appFlags]
+    const nodeArgs = [
+      ...(this.options.nodeFlags || []),      // Custom Node.js flags (--inspect, etc.)
+      '--require', '@expressx/core/runtime',  // Required runtime
+      '--enable-source-maps',                 // Source maps
+      this.entry,                             // Entry file
+      ...(this.options.appFlags || [])        // Application flags (--port, etc.)
+    ];
+
+    if (this.options.nodeFlags && this.options.nodeFlags.length > 0) {
+      console.log(colors.gray(`   Node flags: ${this.options.nodeFlags.join(' ')}`));
+    }
+    if (this.options.appFlags && this.options.appFlags.length > 0) {
+      console.log(colors.gray(`   App flags: ${this.options.appFlags.join(' ')}`));
+    }
+    console.log('');
 
     this.child = spawn(
       'node',
-      [
-        '--require', '@expressx/core/runtime',
-        // '--require', 'ts-node/register',
-        '--enable-source-maps',
-        this.entry
-      ],
+      nodeArgs,
       {
         stdio: 'inherit',
         env: process.env,
@@ -168,12 +269,47 @@ export class DevServer {
     });
   }
 
+
+  private runDoctor(entry: string): boolean {
+    logger.info('ExpressXjs Doctor: Checking your environment...', 'doctor');
+
+    const checks = [
+      {
+        name: 'Entry File',
+        passed: existsSync(path.resolve(process.cwd(), entry)),
+        error: `Could not find entry file at ${entry}`,
+      },
+      // {
+      //   name: 'Reflect Polyfill',
+      //   passed: !!require.resolve('reflect-metadata'),
+      //   error: 'reflect-metadata is missing from the dependency tree.',
+      // },
+      {
+        name: 'Runtime Entry',
+        passed: !!require.resolve('@expressx/core/runtime'),
+        error: '@expressx/core/runtime is not reachable.',
+      }
+    ];
+
+    let allPassed = true;
+
+    checks.forEach(check => {
+      if (check.passed) {
+        logger.info(`${check.name}`, 'doctor');
+      } else {
+        logger.error(`${check.name}: ${check.error}`, 'doctor');
+        allPassed = false;
+      }
+    });
+
+    return allPassed;
+  }
+
   private setupWatcher(): void {
     const config = ExpressXScanner.getConfig();
     const watchPattern = `${config.sourceDir}/**/*.ts`;
 
-    console.log(`👀 Watching: ${watchPattern}\n`);
-    console.log('═'.repeat(60) + '\n');
+    logger.info(`Start Watching file : ${watchPattern} \n`, 'watcher');
 
     this.watcher = chokidar.watch(watchPattern, {
       ignored: IGNORE_PATTERNS,
@@ -205,7 +341,7 @@ export class DevServer {
     let cacheUpdated = false;
 
     if (action === 'deleted') {
-      const index = this.cache.decoratorFiles.indexOf(relativePath);
+      const index = this.cache.decoratorFiles.findIndex(f => f.path === relativePath);
       if (index !== -1) {
         this.cache.decoratorFiles.splice(index, 1);
         console.log(`   ➖ Removed from cache`);
@@ -213,14 +349,27 @@ export class DevServer {
       }
     } else {
       const hasDecorators = this.checkForDecorators(absolutePath);
-      const isInCache = this.cache.decoratorFiles.includes(relativePath);
+      const cachedFile = this.cache.decoratorFiles.find(f => f.path === relativePath);
 
-      if (hasDecorators && !isInCache) {
-        this.cache.decoratorFiles.push(relativePath);
-        console.log(`   ➕ Added to cache (decorator detected)`);
-        cacheUpdated = true;
-      } else if (!hasDecorators && isInCache) {
-        this.cache.decoratorFiles = this.cache.decoratorFiles.filter(f => f !== relativePath);
+      if (hasDecorators) {
+        const stats = fs.statSync(absolutePath);
+        const newData: CachedFileMetadata = {
+          path: relativePath,
+          mtime: stats.mtimeMs,
+          size: stats.size
+        };
+
+        if (!cachedFile) {
+          this.cache.decoratorFiles.push(newData);
+          console.log(`   ➕ Added to cache (decorator detected)`);
+          cacheUpdated = true;
+        } else if (cachedFile.mtime !== stats.mtimeMs) {
+          Object.assign(cachedFile, newData);
+          console.log(`   🔄 Updated cache metadata`);
+          cacheUpdated = true;
+        }
+      } else if (cachedFile) {
+        this.cache.decoratorFiles = this.cache.decoratorFiles.filter(f => f.path !== relativePath);
         console.log(`   ⚠️  Removed from cache (decorators removed)`);
         cacheUpdated = true;
       }
@@ -245,11 +394,20 @@ export class DevServer {
     try {
       const content = fs.readFileSync(filepath, 'utf-8');
 
-      const decoratorPattern = new RegExp(`@(${ExpressXScanner['DECORATORS'].join('|')})\\b(\\s*\\([\\s\\S]*?\\))?`, 'm');
+      // Fast-Path 2: Symbol check (instant)
+      if (!content.includes('@')) return false;
 
-      console.log(decoratorPattern.test(content))
+      // Fast-Path 3: Decorator name substring (fast)
+      const decorators = ExpressXScanner['DECORATORS'] as string[];
 
-      return decoratorPattern.test(content);
+      return decorators.some(decorator => {
+        // Quick substring check before regex
+        if (!content.includes(decorator)) return false;
+
+        const decoratorName = decorator.replace('@', '');
+        const pattern = new RegExp(`@${decoratorName}(\\s*\\(|\\s|$)`, 'm');
+        return pattern.test(content);
+      });
     } catch {
       return false;
     }

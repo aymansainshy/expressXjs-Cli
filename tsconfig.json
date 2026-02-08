@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2021",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     /* Modules */
-    "module": "NodeNext", // Modern emit logic
-    "moduleResolution": "NodeNext", // Modern lookup logic, satisfies TS 5.0+
+    "module": "NodeNext", // ✅ Works with CommonJS output
+    "moduleResolution": "nodenext", // ✅ Modern Node.js resolution
     "rootDir": "src",
     "resolveJsonModule": true,
     /* Emit */
