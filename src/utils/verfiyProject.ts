@@ -1,18 +1,23 @@
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../constant/logger';
 
 export function verifyExpressXProject(): void {
     const pkgPath = path.join(process.cwd(), 'package.json');
 
     if (!fs.existsSync(pkgPath)) {
-        throw new Error('❌ No package.json found.');
+        const error = new Error('package.json not found in current directory.');
+        logger.error(error.message);
+        throw error;
     }
 
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
     if (!deps['@expressx/core']) {
-        throw new Error('❌ @expressx/core is not installed in this project.');
+        const error = new Error('@expressxjs/core is not installed in this project, please run "npm install @expressxjs/core" or "yarn add @expressxjs/core"');
+        logger.error(error.message);
+        throw error;
     }
 }
 

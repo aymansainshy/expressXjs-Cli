@@ -5,8 +5,16 @@ export interface ScanConfig {
 
 export interface FileCache {
   version: string;
-  decoratorFiles: string[];
+  decoratorFiles: CachedFileMetadata[];
   totalScanned: number;
   generatedAt: string;
   environment: 'development' | 'production';
+}
+
+
+export interface CachedFileMetadata {
+  path: string;
+  mtime: number;
+  size: number;
+  hash?: string; // MD5 or xxHash of decorator lines only
 }
